@@ -30,9 +30,12 @@ const MAX_PW_LEN = 32;
  *
  * @param {string} password
  * @returns {{ pwBytes: number[], L: number }}
- * @throws if password contains non-ASCII chars or exceeds 32 chars
+ * @throws if password is empty, contains non-ASCII chars, or exceeds 32 chars
  */
 function encodePassword(password) {
+    if (!password || password.length === 0) {
+        throw new Error('Password cannot be empty.');
+    }
     if (password.length > MAX_PW_LEN) {
         throw new Error(`Password too long: max ${MAX_PW_LEN} characters (got ${password.length})`);
     }

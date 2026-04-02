@@ -114,8 +114,8 @@ async function register() {
         process.exit(1);
     }
 
-    const password = await prompt('Enter password: ', false);
-    if (!password) {
+    const password = await prompt('Enter password: ');
+    if (!password || password.trim().length === 0) {
         console.error('[ZK-AUTH] ✗ Password cannot be empty.');
         process.exit(1);
     }
