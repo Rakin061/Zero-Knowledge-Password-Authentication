@@ -10,10 +10,11 @@ build/password_policy_js/
 setup/*.ptau
 setup/*.zkey
 
-# Generated proof outputs (overwritten each run)
+# Generated proof outputs (overwritten each run, not useful to track)
 proofs/proof.json
 proofs/public.json
 proofs/metrics.json
+# Keep proofs/ directory itself tracked via proofs/.gitkeep
 
 # Witness files
 *.wtns
