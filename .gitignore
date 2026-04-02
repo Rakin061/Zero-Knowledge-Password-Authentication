@@ -27,5 +27,11 @@ Thumbs.db
 *.swo
 .vscode/settings.json
 
+# Local development / course files (not part of submission)
+.claude/
+CLAUDE_CODE_REQUIREMENTS.md
+Requirements.pdf
+*.local
+
 # NOTE: setup/verification_key.json is NOT ignored — it must be committed
 # so the verifier can be used without re-running setup.
