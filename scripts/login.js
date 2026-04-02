@@ -122,31 +122,20 @@ async function login() {
         h:    storedH.toString(),
     };
 
-    // Generate witness
+    // Generate witness + Groth16 proof in one call
     console.log('[ZK-AUTH] Generating witness...');
-    let witness;
-    try {
-        const { wtns } = await snarkjs.wtns.calculate(
-            circuitInputs,
-            PATHS.wasmFile,
-            { type: 'mem' }
-        );
-        witness = wtns;
-    } catch (err) {
-        console.error('[ZK-AUTH] ✗ Witness generation failed: password does not match stored commitment.');
-        console.error('[ZK-AUTH] ✗ Authentication failed.');
-        if (process.env.ZK_DEBUG) console.error(err);
-        process.exit(1);
-    }
-
-    // Generate Groth16 proof
     console.log('[ZK-AUTH] Generating Groth16 proof...');
     const tProveStart = Date.now();
     let proof, publicSignals;
     try {
-        ({ proof, publicSignals } = await snarkjs.groth16.prove(PATHS.finalZKey, witness));
+        ({ proof, publicSignals } = await snarkjs.groth16.fullProve(
+            circuitInputs,
+            PATHS.wasmFile,
+            PATHS.finalZKey
+        ));
     } catch (err) {
-        console.error('[ZK-AUTH] ✗ Proof generation failed.');
+        console.error('[ZK-AUTH] ✗ Witness generation failed: password does not match stored commitment.');
+        console.error('[ZK-AUTH] ✗ Authentication failed.');
         if (process.env.ZK_DEBUG) console.error(err);
         process.exit(1);
     }

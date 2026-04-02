@@ -58,19 +58,11 @@ async function tryProve(pwBytes, L, salt, h) {
         h:    h.toString(),
     };
 
-    let witness;
-    try {
-        const { wtns } = await snarkjs.wtns.calculate(inputs, PATHS.wasmFile, { type: 'mem' });
-        witness = wtns;
-    } catch (_) {
-        return { success: false, stage: 'witness' };
-    }
-
     let proof, publicSignals;
     try {
-        ({ proof, publicSignals } = await snarkjs.groth16.prove(PATHS.finalZKey, witness));
+        ({ proof, publicSignals } = await snarkjs.groth16.fullProve(inputs, PATHS.wasmFile, PATHS.finalZKey));
     } catch (_) {
-        return { success: false, stage: 'prove' };
+        return { success: false, stage: 'witness' };
     }
 
     const vKey = loadJson(PATHS.verificationKey, 'Run setup to generate verification key');

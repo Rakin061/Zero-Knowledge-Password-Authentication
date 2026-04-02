@@ -146,32 +146,22 @@ async function register() {
         h:    h.toString(),
     };
 
-    // Step 4: Generate witness
+    // Steps 4+5: Generate witness and Groth16 proof in one call
+    // fullProve internally: WASM witness generation → Groth16 prove
+    // If witness generation fails (constraint violated), an error is thrown.
     console.log('[ZK-AUTH] Generating witness...');
-    let witness;
-    try {
-        const { wtns } = await snarkjs.wtns.calculate(
-            circuitInputs,
-            PATHS.wasmFile,
-            { type: 'mem' }
-        );
-        witness = wtns;
-    } catch (err) {
-        // Witness generation failure = constraint violation = policy not met
-        console.error('[ZK-AUTH] ✗ Witness generation failed: password does not satisfy policy constraints.');
-        console.error('[ZK-AUTH] ✗ Registration rejected.');
-        if (process.env.ZK_DEBUG) console.error(err);
-        process.exit(1);
-    }
-
-    // Step 5: Generate Groth16 proof
     console.log('[ZK-AUTH] Generating Groth16 proof...');
     const tProveStart = Date.now();
     let proof, publicSignals;
     try {
-        ({ proof, publicSignals } = await snarkjs.groth16.prove(PATHS.finalZKey, witness));
+        ({ proof, publicSignals } = await snarkjs.groth16.fullProve(
+            circuitInputs,
+            PATHS.wasmFile,
+            PATHS.finalZKey
+        ));
     } catch (err) {
-        console.error('[ZK-AUTH] ✗ Proof generation failed.');
+        console.error('[ZK-AUTH] ✗ Witness generation failed: password does not satisfy policy constraints.');
+        console.error('[ZK-AUTH] ✗ Registration rejected.');
         if (process.env.ZK_DEBUG) console.error(err);
         process.exit(1);
     }
