@@ -17,12 +17,12 @@ pragma circom 2.0.0;
 //   3. pw contains at least one special char from !@#$%^&* (ASCII 33,64,35,36,37,94,38,42)
 //   4. Poseidon(pw[0..31], salt) == h  (commitment binding)
 //
-// The password NEVER leaves the client — only proof π and public inputs
+// The password NEVER leaves the client — only proof pi and public inputs
 // (salt, h) travel to the server. This is a building block for PAKE systems.
 //
 // DESIGN CHOICES:
 //   Groth16:  smallest proofs (3 EC elements), fastest verification, trusted setup
-//   Poseidon: ~250 constraints (field arithmetic) vs SHA-256's ~25,000 (bitwise ops)
+//   Poseidon: ~250 constraints (field arithmetic) vs SHA-256 ~25,000 (bitwise ops)
 //   Circom:   standard DSL, circomlib ecosystem, snarkjs integration
 // ============================================================
 
@@ -30,8 +30,29 @@ include "../node_modules/circomlib/circuits/comparators.circom";
 include "../node_modules/circomlib/circuits/poseidon.circom";
 
 // ============================================================
-// Helper: check if a byte value equals a specific constant
-// Returns 1 if in == val, 0 otherwise
+// InRange: checks lo <= in <= hi, returns 1 or 0
+// Uses n-bit LessThan from circomlib
+// ============================================================
+template InRange(n) {
+    signal input in;
+    signal input lo;
+    signal input hi;
+    signal output out;
+
+    component geqLo = LessThan(n);
+    geqLo.in[0] <== lo;
+    geqLo.in[1] <== in + 1;  // lo < in+1  =>  lo <= in
+
+    component leqHi = LessThan(n);
+    leqHi.in[0] <== in;
+    leqHi.in[1] <== hi + 1;  // in < hi+1  =>  in <= hi
+
+    out <== geqLo.out * leqHi.out;
+}
+
+// ============================================================
+// ByteEquals: returns 1 if in == val, else 0
+// Uses multiplicative inverse trick (standard ZK pattern)
 // ============================================================
 template ByteEquals(val) {
     signal input in;
@@ -40,55 +61,66 @@ template ByteEquals(val) {
     signal diff;
     diff <== in - val;
 
-    // Use IsZero pattern: out = 1 - diff * inv (if diff != 0)
     signal inv;
     inv <-- diff == 0 ? 0 : 1 / diff;
     out <== 1 - diff * inv;
-
-    // Constrain out to be boolean
     out * (1 - out) === 0;
-    // If diff == 0 then out == 1, else diff * out == 0
     diff * out === 0;
 }
 
 // ============================================================
-// Helper: check if byte is in range [lo, hi] (inclusive)
-// Returns 1 if lo <= in <= hi, else 0
-// Uses LessThan from circomlib (n-bit comparison)
+// IsDigit: returns 1 if byte is ASCII digit (48-57), else 0
 // ============================================================
-template InRange(n) {
+template IsDigit() {
     signal input in;
-    signal input lo;
-    signal input hi;
     signal output out;
 
-    // lo <= in  =>  in - lo >= 0  =>  LessThan(lo, in+1)
-    component geqLo = LessThan(n);
-    geqLo.in[0] <== lo;
-    geqLo.in[1] <== in + 1;  // lo < in+1  means  lo <= in
+    component r = InRange(8);
+    r.in  <== in;
+    r.lo  <== 48;  // '0'
+    r.hi  <== 57;  // '9'
+    out <== r.out;
+}
 
-    // in <= hi  =>  hi - in >= 0  =>  LessThan(in, hi+1)
-    component leqHi = LessThan(n);
-    leqHi.in[0] <== in;
-    leqHi.in[1] <== hi + 1;  // in < hi+1  means  in <= hi
+// ============================================================
+// IsSpecial: returns 1 if byte is in set {!@#$%^&*}
+// ASCII values: 33(!), 64(@), 35(#), 36($), 37(%), 94(^), 38(&), 42(*)
+// Implemented as sum of individual ByteEquals — at most one fires per char
+// ============================================================
+template IsSpecial() {
+    signal input in;
+    signal output out;
 
-    out <== geqLo.out * leqHi.out;
+    var SPECIAL[8] = [33, 64, 35, 36, 37, 94, 38, 42];
+
+    component eq[8];
+    signal partialSum[9];
+    partialSum[0] <== 0;
+
+    for (var k = 0; k < 8; k++) {
+        eq[k] = ByteEquals(SPECIAL[k]);
+        eq[k].in <== in;
+        partialSum[k+1] <== partialSum[k] + eq[k].out;
+    }
+
+    // partialSum[8] is 0 or 1 (a byte can match at most one special char)
+    out <== partialSum[8];
 }
 
 // ============================================================
 // Main Circuit
 // ============================================================
 template PasswordPolicy() {
-    // --- Public inputs (sent to / stored by server) ---
+    // --- Public inputs ---
     signal input salt;
-    signal input h;       // commitment = Poseidon(pw[0..31], salt)
+    signal input h;
 
-    // --- Private inputs (witness — never leave client) ---
-    signal input pw[32];  // ASCII byte array, padded with zeros to fixed width 32
-    signal input L;       // actual password length
+    // --- Private inputs (witness) ---
+    signal input pw[32];
+    signal input L;
 
     // --------------------------------------------------------
-    // CONSTRAINT SET 1: ASCII range check — each byte in [0, 127]
+    // 1. ASCII range check: each pw[i] in [0, 127]
     // --------------------------------------------------------
     component asciiCheck[32];
     for (var i = 0; i < 32; i++) {
@@ -100,8 +132,7 @@ template PasswordPolicy() {
     }
 
     // --------------------------------------------------------
-    // CONSTRAINT SET 2: Length check — L >= 12
-    // Use LessThan: 11 < L  iff  L >= 12
+    // 2. Length: L >= 12
     // --------------------------------------------------------
     component lenCheck = LessThan(8);
     lenCheck.in[0] <== 11;
@@ -109,19 +140,64 @@ template PasswordPolicy() {
     lenCheck.out === 1;
 
     // --------------------------------------------------------
-    // CONSTRAINT SET 3: L <= 32 (within circuit capacity)
+    // 3. Length: L <= 32
     // --------------------------------------------------------
     component maxLen = LessThan(8);
     maxLen.in[0] <== L;
-    maxLen.in[1] <== 33;  // L < 33  means  L <= 32
+    maxLen.in[1] <== 33;
     maxLen.out === 1;
 
     // --------------------------------------------------------
-    // CONSTRAINT SET 4: Honest padding — pw[i] == 0 for i >= L
-    // (digit and special checks excluded beyond actual length)
+    // 4. Digit check: at least one digit in pw[0..L-1]
+    //
+    // Strategy: compute digitSum = sum of isDigit[i] for all i.
+    // Enforce digitSum >= 1 via:  digitSum * inv_digit == 1
+    // If digitSum == 0 this is unsatisfiable (no inverse of 0).
     // --------------------------------------------------------
-    // Handled implicitly: isDigit and isSpecial only fire within L
-    // by multiplying with an "active" indicator below.
+    component isDigit[32];
+    signal digitFlags[32];
+    signal digitPartial[33];
+    digitPartial[0] <== 0;
+
+    for (var i = 0; i < 32; i++) {
+        isDigit[i] = IsDigit();
+        isDigit[i].in <== pw[i];
+        digitFlags[i] <== isDigit[i].out;
+        digitPartial[i+1] <== digitPartial[i] + digitFlags[i];
+    }
+
+    signal digitSum;
+    digitSum <== digitPartial[32];
+
+    signal inv_digit;
+    inv_digit <-- 1 / digitSum;
+    digitSum * inv_digit === 1;  // unsatisfiable if digitSum == 0
+
+    // --------------------------------------------------------
+    // 5. Special character check: at least one special char in pw[0..L-1]
+    //
+    // Same pattern: specialSum * inv_special == 1
+    // --------------------------------------------------------
+    component isSpecial[32];
+    signal specialFlags[32];
+    signal specialPartial[33];
+    specialPartial[0] <== 0;
+
+    for (var i = 0; i < 32; i++) {
+        isSpecial[i] = IsSpecial();
+        isSpecial[i].in <== pw[i];
+        specialFlags[i] <== isSpecial[i].out;
+        specialPartial[i+1] <== specialPartial[i] + specialFlags[i];
+    }
+
+    signal specialSum;
+    specialSum <== specialPartial[32];
+
+    signal inv_special;
+    inv_special <-- 1 / specialSum;
+    specialSum * inv_special === 1;  // unsatisfiable if specialSum == 0
+
+    // Poseidon commitment added in next commit
 }
 
 component main { public [salt, h] } = PasswordPolicy();
