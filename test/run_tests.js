@@ -92,6 +92,7 @@ async function tryCommitAndProve(password) {
 async function main() {
     console.log('[ZK-AUTH TEST] Running automated test suite...');
     console.log('[ZK-AUTH TEST] ================================');
+    console.log('[ZK-AUTH TEST] Set ZK_DEBUG=1 for verbose error output.');
     console.log('');
 
     // Check setup files first
