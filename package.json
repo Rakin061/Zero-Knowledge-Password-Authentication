@@ -24,6 +24,7 @@
   "author": "rakin061",
   "license": "MIT",
   "dependencies": {
+    "circomlib": "^2.0.5",
     "circomlibjs": "^0.1.7",
     "ffjavascript": "^0.3.0",
     "readline-sync": "^1.4.10",
