@@ -133,10 +133,13 @@ async function register() {
     // Step 1: Generate salt
     console.log('[ZK-AUTH] Generating salt...');
     const salt = generateSalt();
+    console.log(`[ZK-AUTH]   salt = ${salt}`);
 
     // Step 2: Compute Poseidon commitment outside circuit
     console.log('[ZK-AUTH] Computing Poseidon commitment...');
     const h = await poseidonCommitment(pwBytes, salt);
+    console.log(`[ZK-AUTH]   h    = ${h}`);
+    console.log('[ZK-AUTH]   (password never leaves client — only salt + h sent to server)');
 
     // Step 3: Prepare circuit inputs
     const circuitInputs = {
@@ -147,9 +150,10 @@ async function register() {
     };
 
     // Steps 4+5: Generate witness and Groth16 proof in one call
-    // fullProve internally: WASM witness generation → Groth16 prove
-    // If witness generation fails (constraint violated), an error is thrown.
     console.log('[ZK-AUTH] Generating witness...');
+    console.log(`[ZK-AUTH]   private inputs: pw[32] (ASCII bytes), L=${L}`);
+    console.log(`[ZK-AUTH]   public inputs:  salt, h`);
+    console.log('[ZK-AUTH]   checking constraints: ASCII validity, length >= 12, digit, special char, Poseidon(pw,salt)==h');
     console.log('[ZK-AUTH] Generating Groth16 proof...');
     const tProveStart = Date.now();
     let proof, publicSignals;
@@ -166,13 +170,19 @@ async function register() {
         process.exit(1);
     }
     const provingTimeMs = Date.now() - tProveStart;
+    console.log(`[ZK-AUTH]   pi_a = ${proof.pi_a[0].slice(0,20)}...`);
+    console.log(`[ZK-AUTH]   pi_b = ${proof.pi_b[0][0].slice(0,20)}...`);
+    console.log(`[ZK-AUTH]   pi_c = ${proof.pi_c[0].slice(0,20)}...`);
+    console.log(`[ZK-AUTH]   proof generated in ${provingTimeMs}ms`);
 
     // Step 6: Verify proof (server-side simulation)
     console.log('[ZK-AUTH] Verifying proof...');
+    console.log('[ZK-AUTH]   inputs to verifier: verification_key.json + pi + (salt, h)');
     const vKey = JSON.parse(fs.readFileSync(PATHS.verificationKey, 'utf8'));
     const tVerifyStart = Date.now();
     const isValid = await snarkjs.groth16.verify(vKey, publicSignals, proof);
     const verifyTimeMs = Date.now() - tVerifyStart;
+    console.log(`[ZK-AUTH]   result: ${isValid ? 'VALID ✓' : 'INVALID ✗'} (verified in ${verifyTimeMs}ms)`);
 
     if (!isValid) {
         console.error('[ZK-AUTH] ✗ Proof verification failed. Registration rejected.');
@@ -191,6 +201,7 @@ async function register() {
         h:    h.toString(),
     };
     saveUsers(users);
+    console.log(`[ZK-AUTH]   stored in db: { salt, h } — no password`);
 
     // Metrics
     const metrics = { provingTimeMs, verifyTimeMs, proofSizeBytes };

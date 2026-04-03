@@ -103,16 +103,18 @@ async function login() {
         process.exit(1);
     }
 
-    // Verify that the locally computed commitment matches the stored one.
-    // This is a pre-check that avoids attempting witness generation when
-    // the password is clearly wrong, giving a clear error message.
-    // (The circuit would catch it anyway, but the error would be less clear.)
+    // Compute Poseidon locally and compare against stored commitment
+    console.log('[ZK-AUTH] Computing Poseidon commitment from entered password...');
     const computedH = await poseidonCommitment(pwBytes, salt);
+    console.log(`[ZK-AUTH]   computed h = ${computedH}`);
+    console.log(`[ZK-AUTH]   stored  h  = ${storedH}`);
+
     if (computedH !== storedH) {
-        console.error('[ZK-AUTH] ✗ Witness generation failed: password does not match stored commitment.');
+        console.error('[ZK-AUTH]   commitment mismatch — password does not match stored commitment.');
         console.error('[ZK-AUTH] ✗ Authentication failed.');
         process.exit(1);
     }
+    console.log('[ZK-AUTH]   commitment match ✓ — proceeding to ZK proof');
 
     // Prepare circuit inputs (same as registration — one circuit for both)
     const circuitInputs = {
@@ -124,6 +126,9 @@ async function login() {
 
     // Generate witness + Groth16 proof in one call
     console.log('[ZK-AUTH] Generating witness...');
+    console.log(`[ZK-AUTH]   private inputs: pw[32] (ASCII bytes), L=${L}`);
+    console.log(`[ZK-AUTH]   public inputs:  salt, h (from server)`);
+    console.log('[ZK-AUTH]   checking constraints: Poseidon(pw,salt)==h, policy enforced');
     console.log('[ZK-AUTH] Generating Groth16 proof...');
     const tProveStart = Date.now();
     let proof, publicSignals;
@@ -140,13 +145,19 @@ async function login() {
         process.exit(1);
     }
     const provingTimeMs = Date.now() - tProveStart;
+    console.log(`[ZK-AUTH]   pi_a = ${proof.pi_a[0].slice(0,20)}...`);
+    console.log(`[ZK-AUTH]   pi_b = ${proof.pi_b[0][0].slice(0,20)}...`);
+    console.log(`[ZK-AUTH]   pi_c = ${proof.pi_c[0].slice(0,20)}...`);
+    console.log(`[ZK-AUTH]   proof generated in ${provingTimeMs}ms`);
 
     // Verify proof (server-side simulation)
     console.log('[ZK-AUTH] Verifying proof...');
+    console.log('[ZK-AUTH]   inputs to verifier: verification_key.json + pi + (salt, h)');
     const vKey = JSON.parse(fs.readFileSync(PATHS.verificationKey, 'utf8'));
     const tVerifyStart = Date.now();
     const isValid = await snarkjs.groth16.verify(vKey, publicSignals, proof);
     const verifyTimeMs = Date.now() - tVerifyStart;
+    console.log(`[ZK-AUTH]   result: ${isValid ? 'VALID ✓' : 'INVALID ✗'} (verified in ${verifyTimeMs}ms)`);
 
     if (!isValid) {
         console.error('[ZK-AUTH] ✗ Proof verification failed.');
