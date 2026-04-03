@@ -38,14 +38,9 @@ The verifier checks only the proof `π` against the public inputs `(salt, h)`. T
 ## System Architecture
 
 
-### Registration
-
-![Registration Workflow](docs/workflow_registration.png)
+![Registration and Authentication Workflow](docs/system_workflow.png)
 
 
-### Authentication
-
-![Authenticaton Workflow](docs/workflow_login.png)
 
 ---
 
