@@ -44,7 +44,9 @@ The verifier checks only the proof `π` against the public inputs `(salt, h)`. T
 ## System Architecture
 
 
-![System Architecture](docs/architecture.jpg)
+<p align="center">
+  <img src="docs/workflow.png" width="500"/>
+</p>
 
 
 
