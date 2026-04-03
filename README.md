@@ -1,14 +1,12 @@
 # Zero-Knowledge Proof Based Password Authentication and Policy Enforcement
 
-**CISC 878 Advanced Cryptographic Techniques — Queen's University**
-
 ---
 
 ## Overview
 
-Password-based authentication protocols such as SRP and OPAQUE (Password Authenticated Key Exchange — PAKE) address the transmission security problem by ensuring that the password never travels over the network. However, these protocols do not provide cryptographic guarantees that the registered password satisfies the server's policy at registration time. A malicious or careless client could register a trivially guessable password, undermining the security of the overall system.
+Password-based authentication is widely used in modern systems, but it typically requires users to send their password to a server for verification. Even when passwords are securely stored (e.g., hashed), the server still receives the raw password during login or registration. This creates a potential point of exposure, especially in the case of server compromise, logging issues, or implementation flaws. Password-based authentication protocols such as SRP and OPAQUE (Password Authenticated Key Exchange — PAKE) address the transmission security problem by ensuring that the password never travels over the network. 
 
-This project implements a zero-knowledge proof based mechanism that fills this gap. Using a Groth16 zk-SNARK over a Circom arithmetic circuit, a client can prove to a server that their password satisfies a defined policy (minimum length, digit, special character) **and** correctly corresponds to a stored Poseidon hash commitment — without ever transmitting or revealing the password itself. This serves as a cryptographic building block that can be integrated into PAKE-based authentication systems to enforce password policy at the protocol level.
+This project implements a zero-knowledge proof based mechanism that fills this gap. Using a Groth16 zk-SNARK over a Circom arithmetic circuit, a client can prove to a server that their password satisfies a defined policy (minimum length, digit, special character) **and** correctly corresponds to a stored Poseidon hash commitment — without ever transmitting or revealing the password itself. This serves as a cryptographic building block that can be integrated into PAKE-based authentication systems to enforce password policy at the protocol level. The project demonstrates how zero-knowledge techniques can be used to enforce password policies and verify correctness in a privacy-preserving manner.
 
 ---
 
@@ -16,7 +14,7 @@ This project implements a zero-knowledge proof based mechanism that fills this g
 
 ### What is a zk-SNARK?
 
-A zk-SNARK (Zero-Knowledge Succinct Non-interactive Argument of Knowledge) is a cryptographic proof system in which a prover can convince a verifier that they know a secret witness satisfying some predicate, without revealing the witness. "Succinct" means the proof is short (a few hundred bytes) and fast to verify regardless of the complexity of the computation. "Non-interactive" means the proof can be sent as a single message. Groth16 is a specific zk-SNARK construction based on bilinear pairings over elliptic curves (BN128), producing the smallest known proofs — only 3 group elements.
+A zk-SNARK (Zero-Knowledge Succinct Non-interactive Argument of Knowledge) is a cryptographic proof system in which a prover can convince a verifier that they know a secret witness satisfying some predicate, without revealing the witness. "Succinct" means the proof is short (a few hundred bytes) and fast to verify regardless of the complexity of the computation. And, "Non-interactive" means the proof can be sent as a single message. Groth16 is a specific zk-SNARK construction based on bilinear pairings over elliptic curves (BN128), producing the smallest known proofs with only 3 group elements.
 
 ### What the Circuit Proves
 
@@ -36,65 +34,18 @@ The verifier checks only the proof `π` against the public inputs `(salt, h)`. T
 
 ---
 
-## Design Justification
-
-### Why Groth16?
-
-Groth16 [[Groth16]](#references) produces the smallest proofs of any known zk-SNARK: exactly 3 elliptic curve group elements (~200 bytes) regardless of circuit size. Verification is constant-time and takes only a few milliseconds. The trade-off is that Groth16 requires a **trusted setup** (Powers of Tau ceremony) — a one-time multi-party computation that must be run honestly. For this proof-of-concept, a single-party local setup is used. In production, a multi-party ceremony (as used by Zcash, Hermez) would be appropriate. Halo2 and PLONK eliminate the trusted setup but have significantly higher implementation complexity, making Groth16 the right choice for this scope.
-
-### Why Poseidon Hash?
-
-SHA-256 requires approximately **25,000 arithmetic constraints** inside an R1CS circuit because its bitwise operations (XOR, AND, rotations) must be emulated using field arithmetic — each bit operation requires several constraints. Poseidon [[Poseidon]](#references) is specifically designed for zero-knowledge proofs: it uses only field additions and multiplications with an `x^5` S-box, requiring only approximately **250 constraints** — roughly 100× fewer. This makes proof generation feasible on a laptop in seconds rather than minutes. The trade-off is that Poseidon has a shorter cryptanalysis history than SHA-256, though it is widely deployed in production ZK systems (Zcash Sapling/Orchard, StarkWare, Filecoin).
-
-### Why Circom?
-
-Circom is the standard domain-specific language for writing arithmetic circuits for zk-SNARKs. It compiles to R1CS (Rank-1 Constraint System) and generates a WebAssembly witness calculator, which integrates directly with snarkjs. The `circomlib` library provides battle-tested gadgets: `LessThan`, `IsZero`, `Poseidon`, and comparators — all used in this circuit.
-
-### Why One Circuit for Both Registration and Login?
-
-Using a single circuit for both registration and authentication simplifies the implementation and the trusted setup (only one proving key needed). The trade-off is that authentication runs the policy constraints unnecessarily — a production system would use a separate, lighter authentication circuit that checks only the hash commitment. This limitation is noted throughout the codebase.
-
----
 
 ## System Architecture
 
-The workflow diagram is available at [`docs/workflow.drawio`](docs/workflow.drawio) (open at [app.diagrams.net](https://app.diagrams.net)).
 
 ### Registration
 
-```
-Client                                    Server
-──────────────────────────────────────    ─────────────────────────────────
-User enters password (locally)
-Generate random salt (31-byte CSPRNG)
-Compute h = Poseidon(pw, salt)
-Witness generation:
-  ├─ Policy: len>=12, digit, special
-  └─ Hash: Poseidon(pw, salt) == h
-Groth16 prove → proof π
-                                  ──────────────────────►
-                         π + salt + h (password NOT sent)
-                                          Groth16 verify(π, salt, h)
-                                          Store (username, salt, h)
-```
+![Registration Workflow](docs/workflow_registration.png)
+
 
 ### Authentication
 
-```
-Client                                    Server
-──────────────────────────────────────    ─────────────────────────────────
-User enters password (locally)
-                                  ◄──────────────────────
-                                          Send: salt + h for username
-Witness generation:
-  └─ Hash: Poseidon(pw, salt) == h
-     (policy also verified — same circuit)
-Groth16 prove → proof π
-                                  ──────────────────────►
-                         π + (salt, h) (password NOT sent)
-                                          Groth16 verify(π, salt, h)
-                                          ✓ Login success
-```
+![Authenticaton Workflow](docs/workflow_login.png)
 
 ---
 
